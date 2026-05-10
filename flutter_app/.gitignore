@@ -1,0 +1,15 @@
+build/
+.dart_tool/
+.flutter-plugins
+.packages
+*.iml
+.idea/
+.vscode/
+*.swp
+*.swo
+*.swn
+
+# Firebase config — never commit these, generate locally with FlutterFire CLI
+lib/firebase_options.dart
+android/app/google-services.json
+ios/Runner/GoogleService-Info.plist

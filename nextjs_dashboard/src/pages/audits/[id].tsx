@@ -11,7 +11,11 @@ import FinalApprovalModal from '@/components/FinalApprovalModal';
 import { useAuthGuard } from '@/lib/useAuthGuard';
 import { useVerificationItemStore, useAuditStore, useClientStore, VerificationItem } from '@/lib/store';
 import { auditsAPI, clientsAPI, verificationItemsAPI } from '@/lib/api';
-import { ArrowLeft, Plus, CheckSquare, X, Calendar, ChevronDown, MessageCircle, Mail, Upload, Zap, ShieldAlert } from 'lucide-react';
+import {
+  ArrowLeft, Plus, CheckSquare, X, Calendar, ChevronDown,
+  MessageCircle, Mail, Upload, Zap, ShieldAlert, Download,
+  FileSpreadsheet, Table2, History, Wifi,
+} from 'lucide-react';
 
 type FilterTab = 'all' | 'pending' | 'evidence_submitted' | 'verified' | 'rejected';
 type RejectState = { open: boolean; itemId: number | null; reason: string };
@@ -52,7 +56,7 @@ export default function AuditDetail() {
   const [lastRequestedAt, setLastRequestedAt] = useState<string | null>(null);
   const [markingRequested, setMarkingRequested] = useState(false);
 
-  // Tally Bridge state
+  // Tally CSV Import state (existing)
   const [showTallyPanel, setShowTallyPanel] = useState(false);
   const [tallyFile, setTallyFile] = useState<File | null>(null);
   const [tallyImporting, setTallyImporting] = useState(false);
@@ -61,6 +65,30 @@ export default function AuditDetail() {
   const [sampleSize, setSampleSize] = useState(25);
   const [sampling, setSampling] = useState(false);
   const [sampleResult, setSampleResult] = useState<{ total_transactions: number; flagged_count: number } | null>(null);
+
+  // Tally Hot-Sync state (new)
+  const [showHotSyncPanel, setShowHotSyncPanel] = useState(false);
+  const [hotSyncHost, setHotSyncHost] = useState('localhost');
+  const [hotSyncPort, setHotSyncPort] = useState(9000);
+  const [hotSyncCompany, setHotSyncCompany] = useState('');
+  const [hotSyncFrom, setHotSyncFrom] = useState('');
+  const [hotSyncTo, setHotSyncTo] = useState('');
+  const [hotSyncing, setHotSyncing] = useState(false);
+  const [hotSyncResult, setHotSyncResult] = useState<{ created: number; skipped: number } | null>(null);
+
+  // Bulk Excel Upload state (new)
+  const [showBulkPanel, setShowBulkPanel] = useState(false);
+  const [bulkFile, setBulkFile] = useState<File | null>(null);
+  const [bulkUploading, setBulkUploading] = useState(false);
+  const [bulkResult, setBulkResult] = useState<{ created: number; failed: number } | null>(null);
+
+  // Audit Trail state (new)
+  const [showTrailPanel, setShowTrailPanel] = useState(false);
+  const [trail, setTrail] = useState<any[]>([]);
+  const [trailLoading, setTrailLoading] = useState(false);
+
+  // Export state (new)
+  const [exporting, setExporting] = useState<'zip' | 'pdf' | null>(null);
 
   const parentRef = useRef<HTMLDivElement>(null);
 
@@ -215,9 +243,7 @@ export default function AuditDetail() {
 
   const buildForwardMessage = () => {
     const header = `Dear Client,\n\nPlease provide the following documents for our upcoming ${audit?.audit_type || 'Audit'}:\n\n`;
-    const body = requestList
-      .map((r, i) => `${i + 1}. ${r.document}`)
-      .join('\n');
+    const body = requestList.map((r, i) => `${i + 1}. ${r.document}`).join('\n');
     return header + body + '\n\nKindly share them at the earliest.\n\nThank you.';
   };
 
@@ -242,15 +268,9 @@ export default function AuditDetail() {
       setTallyResult({ created: res.data.created, skipped: res.data.skipped });
       if (res.data.items?.length > 0) {
         addItems(res.data.items.map((i: any) => ({
-          ...i,
-          audit_id: auditId,
-          item_type: 'financial_record',
-          status: 'pending',
-          is_ai_parsed: false,
-          is_tally_import: true,
-          is_high_risk: false,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
+          ...i, audit_id: auditId, item_type: 'financial_record',
+          status: 'pending', is_ai_parsed: false, is_tally_import: true,
+          is_high_risk: false, created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
         })));
       }
       setTallyFile(null);
@@ -267,13 +287,112 @@ export default function AuditDetail() {
     try {
       const res = await auditsAPI.aiSample(auditId, minValue, sampleSize);
       setSampleResult({ total_transactions: res.data.total_transactions, flagged_count: res.data.flagged_count });
-      // Refresh items to pick up is_high_risk flags
       const refreshed = await verificationItemsAPI.list(auditId, { limit: 500 });
       setItems(refreshed.data);
     } catch (err: any) {
       alert(err?.response?.data?.detail || 'AI sampling failed');
     } finally {
       setSampling(false);
+    }
+  };
+
+  // ── Tally Hot-Sync ─────────────────────────────────────────────────
+  const handleHotSync = async () => {
+    if (!auditId || !hotSyncFrom || !hotSyncTo) return;
+    setHotSyncing(true);
+    setHotSyncResult(null);
+    try {
+      const res = await auditsAPI.tallyHotSync(auditId, {
+        host: hotSyncHost,
+        port: hotSyncPort,
+        from_date: hotSyncFrom.replace(/-/g, ''),
+        to_date: hotSyncTo.replace(/-/g, ''),
+        company: hotSyncCompany || undefined,
+      });
+      setHotSyncResult({ created: res.data.created, skipped: res.data.skipped });
+      if (res.data.items?.length > 0) {
+        addItems(res.data.items.map((i: any) => ({
+          ...i, audit_id: auditId, item_type: 'financial_record',
+          status: 'pending', is_ai_parsed: false, is_tally_import: true,
+          is_high_risk: false, created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+        })));
+      }
+    } catch (err: any) {
+      alert(err?.response?.data?.detail || 'Hot-sync failed. Make sure Tally is running with HTTP server enabled.');
+    } finally {
+      setHotSyncing(false);
+    }
+  };
+
+  // ── Bulk Excel Upload ──────────────────────────────────────────────
+  const handleBulkUpload = async () => {
+    if (!auditId || !bulkFile) return;
+    setBulkUploading(true);
+    setBulkResult(null);
+    try {
+      const res = await verificationItemsAPI.bulkUpload(auditId, bulkFile);
+      setBulkResult({ created: res.data.created, failed: res.data.failed });
+      if (res.data.items?.length > 0) {
+        addItems(res.data.items.map((i: any) => ({
+          ...i, audit_id: auditId, is_ai_parsed: false, is_tally_import: false,
+          is_high_risk: false, created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+        })));
+      }
+      setBulkFile(null);
+    } catch (err: any) {
+      alert(err?.response?.data?.detail || 'Bulk upload failed');
+    } finally {
+      setBulkUploading(false);
+    }
+  };
+
+  const handleDownloadTemplate = async () => {
+    if (!auditId) return;
+    try {
+      const res = await verificationItemsAPI.downloadTemplate(auditId);
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'bulk_items_template.xlsx';
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      alert('Could not download template');
+    }
+  };
+
+  // ── Audit Trail ────────────────────────────────────────────────────
+  const handleLoadTrail = async () => {
+    if (!auditId) return;
+    setTrailLoading(true);
+    try {
+      const res = await auditsAPI.getTrail(auditId, 0, 200);
+      setTrail(res.data);
+    } catch {
+      alert('Failed to load audit trail');
+    } finally {
+      setTrailLoading(false);
+    }
+  };
+
+  // ── Workpaper Export ───────────────────────────────────────────────
+  const handleExport = async (format: 'zip' | 'pdf') => {
+    if (!auditId) return;
+    setExporting(format);
+    try {
+      const res = await auditsAPI.exportWorkpaper(auditId, format);
+      const mime = format === 'pdf' ? 'application/pdf' : 'application/zip';
+      const ext = format;
+      const url = window.URL.createObjectURL(new Blob([res.data], { type: mime }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `workpaper_audit_${auditId}.${ext}`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      alert(err?.response?.data?.detail || 'Export failed');
+    } finally {
+      setExporting(null);
     }
   };
 
@@ -317,7 +436,7 @@ export default function AuditDetail() {
               {clientName && <p className="text-sm text-gray-500">{clientName}</p>}
             </div>
 
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
               <div className="relative">
                 <select
                   value={audit.status}
@@ -330,6 +449,26 @@ export default function AuditDetail() {
                 </select>
                 <ChevronDown className="w-3.5 h-3.5 text-gray-400 absolute right-2 top-2.5 pointer-events-none" />
               </div>
+
+              {/* Export buttons */}
+              <button
+                onClick={() => handleExport('zip')}
+                disabled={!!exporting}
+                title="Download all evidence + workpapers as ZIP"
+                className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 text-gray-700 text-xs font-medium rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
+              >
+                <Download className="w-3.5 h-3.5" />
+                {exporting === 'zip' ? 'Zipping…' : 'ZIP'}
+              </button>
+              <button
+                onClick={() => handleExport('pdf')}
+                disabled={!!exporting}
+                title="Download summary PDF workpaper"
+                className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 text-gray-700 text-xs font-medium rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
+              >
+                <Download className="w-3.5 h-3.5" />
+                {exporting === 'pdf' ? 'Generating…' : 'PDF'}
+              </button>
 
               <button
                 onClick={() => setShowFinalize(true)}
@@ -371,10 +510,7 @@ export default function AuditDetail() {
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 mb-5">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold text-gray-900">Audit Brief</h2>
-            <button
-              onClick={() => setShowBriefUploader((v) => !v)}
-              className="text-xs text-blue-600 hover:text-blue-800"
-            >
+            <button onClick={() => setShowBriefUploader((v) => !v)} className="text-xs text-blue-600 hover:text-blue-800">
               {showBriefUploader ? 'Hide' : 'Upload brief'}
             </button>
           </div>
@@ -382,9 +518,60 @@ export default function AuditDetail() {
             <BriefUploader auditId={auditId!} onItemsCreated={handleItemsCreated} />
           )}
           {!showBriefUploader && (
+            <p className="text-xs text-gray-400">Upload an Excel or PDF brief to auto-create verification items.</p>
+          )}
+        </div>
+
+        {/* ── Bulk Excel Upload ──────────────────────────── */}
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 mb-5">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-gray-900">Bulk Upload Items (Excel)</h2>
+            <button onClick={() => setShowBulkPanel((v) => !v)} className="text-xs text-blue-600 hover:text-blue-800">
+              {showBulkPanel ? 'Hide' : 'Open'}
+            </button>
+          </div>
+
+          {!showBulkPanel && (
             <p className="text-xs text-gray-400">
-              Upload an Excel or PDF brief to auto-create verification items from client records.
+              Upload up to 1,000 verification items at once using an Excel file. Columns: title, item_type, reference_value, description.
             </p>
+          )}
+
+          {showBulkPanel && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={handleDownloadTemplate}
+                  className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 text-xs text-gray-600 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  <Table2 className="w-3.5 h-3.5" /> Download Template
+                </button>
+                <label className="flex items-center gap-2 px-3 py-1.5 border border-dashed border-gray-300 rounded-lg text-xs text-gray-500 hover:border-blue-400 hover:text-blue-600 cursor-pointer transition-colors">
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                  {bulkFile ? bulkFile.name : 'Choose .xlsx file'}
+                  <input
+                    type="file"
+                    accept=".xlsx"
+                    className="hidden"
+                    onChange={(e) => setBulkFile(e.target.files?.[0] || null)}
+                  />
+                </label>
+                <button
+                  onClick={handleBulkUpload}
+                  disabled={!bulkFile || bulkUploading}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 disabled:bg-gray-300 transition-colors"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  {bulkUploading ? 'Uploading…' : 'Upload'}
+                </button>
+              </div>
+              {bulkResult && (
+                <p className={`text-xs font-medium ${bulkResult.failed > 0 ? 'text-yellow-700' : 'text-green-700'}`}>
+                  ✓ {bulkResult.created} items created
+                  {bulkResult.failed > 0 && `, ${bulkResult.failed} rows skipped (missing title)`}.
+                </p>
+              )}
+            </div>
           )}
         </div>
 
@@ -395,7 +582,7 @@ export default function AuditDetail() {
               <h2 className="text-sm font-semibold text-gray-900">Document Request Generator</h2>
               {lastRequestedAt && (
                 <p className="text-xs text-gray-400 mt-0.5">
-                  Last sent to client: {new Date(lastRequestedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  Last sent: {new Date(lastRequestedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                 </p>
               )}
             </div>
@@ -412,7 +599,7 @@ export default function AuditDetail() {
 
           {!showRequestPanel && (
             <p className="text-xs text-gray-400">
-              AI analyses the audit type &amp; scope, checks what&#39;s already uploaded, and generates a missing-document checklist you can forward via WhatsApp or Email.
+              AI generates a missing-document checklist you can forward via WhatsApp or Email.
             </p>
           )}
 
@@ -481,42 +668,33 @@ export default function AuditDetail() {
           )}
         </div>
 
-        {/* ── Tally Bridge & AI Sampling ────────────────── */}
+        {/* ── Tally Bridge: CSV Import & AI Sampling ────── */}
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 mb-5">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-semibold text-gray-900">Tally / Zoho Import &amp; AI Sampling</h2>
-            <button
-              onClick={() => setShowTallyPanel((v) => !v)}
-              className="text-xs text-blue-600 hover:text-blue-800"
-            >
+            <h2 className="text-sm font-semibold text-gray-900">Tally / Zoho CSV Import &amp; AI Sampling</h2>
+            <button onClick={() => setShowTallyPanel((v) => !v)} className="text-xs text-blue-600 hover:text-blue-800">
               {showTallyPanel ? 'Hide' : 'Open'}
             </button>
           </div>
 
           {!showTallyPanel && (
             <p className="text-xs text-gray-400">
-              Import a Tally CSV to auto-create verification tasks, then let Gemini flag the 25 riskiest transactions for junior auditors to chase.
+              Import a Tally CSV to auto-create verification tasks, then let Gemini flag the riskiest transactions.
             </p>
           )}
 
           {showTallyPanel && (
             <div className="space-y-5">
-              {/* Import section */}
               <div>
                 <p className="text-xs font-medium text-gray-700 mb-2">Step 1 — Import Tally CSV</p>
                 <p className="text-xs text-gray-400 mb-3">
-                  Export your Trial Balance or Ledger from Tally as CSV. Required columns: <code className="bg-gray-100 px-1 rounded">transaction_id</code>, <code className="bg-gray-100 px-1 rounded">ledger_name</code>, <code className="bg-gray-100 px-1 rounded">amount</code>. Optional: <code className="bg-gray-100 px-1 rounded">vendor_name</code>, <code className="bg-gray-100 px-1 rounded">transaction_date</code>, <code className="bg-gray-100 px-1 rounded">description</code>, <code className="bg-gray-100 px-1 rounded">voucher_type</code>.
+                  Required columns: <code className="bg-gray-100 px-1 rounded">transaction_id</code>, <code className="bg-gray-100 px-1 rounded">ledger_name</code>, <code className="bg-gray-100 px-1 rounded">amount</code>.
                 </p>
                 <div className="flex items-center gap-3">
                   <label className="flex items-center gap-2 px-3 py-1.5 border border-dashed border-gray-300 rounded-lg text-xs text-gray-500 hover:border-blue-400 hover:text-blue-600 cursor-pointer transition-colors">
                     <Upload className="w-3.5 h-3.5" />
                     {tallyFile ? tallyFile.name : 'Choose CSV file'}
-                    <input
-                      type="file"
-                      accept=".csv"
-                      className="hidden"
-                      onChange={(e) => setTallyFile(e.target.files?.[0] || null)}
-                    />
+                    <input type="file" accept=".csv" className="hidden" onChange={(e) => setTallyFile(e.target.files?.[0] || null)} />
                   </label>
                   <button
                     onClick={handleTallyImport}
@@ -529,17 +707,13 @@ export default function AuditDetail() {
                 </div>
                 {tallyResult && (
                   <p className="mt-2 text-xs text-green-700 font-medium">
-                    ✓ {tallyResult.created} transactions imported, {tallyResult.skipped} skipped (duplicates or incomplete rows).
+                    ✓ {tallyResult.created} transactions imported, {tallyResult.skipped} skipped.
                   </p>
                 )}
               </div>
 
-              {/* Sampling section */}
               <div className="border-t border-gray-100 pt-5">
                 <p className="text-xs font-medium text-gray-700 mb-2">Step 2 — Run AI Risk Sampling</p>
-                <p className="text-xs text-gray-400 mb-3">
-                  Gemini will scan all imported transactions and flag the riskiest ones — high-value, round numbers, odd-hour payments, and vendor-splitting patterns.
-                </p>
                 <div className="flex flex-wrap items-end gap-4 mb-3">
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">High-value threshold (₹)</label>
@@ -547,8 +721,7 @@ export default function AuditDetail() {
                       type="number"
                       value={minValue}
                       onChange={(e) => setMinValue(Number(e.target.value))}
-                      step={5000}
-                      min={0}
+                      step={5000} min={0}
                       className="w-36 px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
@@ -558,8 +731,7 @@ export default function AuditDetail() {
                       type="number"
                       value={sampleSize}
                       onChange={(e) => setSampleSize(Number(e.target.value))}
-                      min={5}
-                      max={100}
+                      min={5} max={100}
                       className="w-24 px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
@@ -574,10 +746,160 @@ export default function AuditDetail() {
                 </button>
                 {sampleResult && (
                   <p className="mt-2 text-xs text-orange-700 font-medium">
-                    ✓ {sampleResult.flagged_count} high-risk items flagged out of {sampleResult.total_transactions} transactions. They are now marked in the checklist below.
+                    ✓ {sampleResult.flagged_count} high-risk items flagged out of {sampleResult.total_transactions} transactions.
                   </p>
                 )}
               </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── Tally Hot-Sync ────────────────────────────── */}
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 mb-5">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+                <Wifi className="w-4 h-4 text-emerald-600" /> Tally Live Pull (Hot-Sync)
+              </h2>
+              <p className="text-xs text-gray-400 mt-0.5">No CSV needed — connects directly to running Tally</p>
+            </div>
+            <button onClick={() => setShowHotSyncPanel((v) => !v)} className="text-xs text-blue-600 hover:text-blue-800">
+              {showHotSyncPanel ? 'Hide' : 'Connect'}
+            </button>
+          </div>
+
+          {!showHotSyncPanel && (
+            <p className="text-xs text-gray-400">
+              Pull vouchers directly from a running Tally Prime / ERP 9 instance on your network. Enable Tally HTTP server under Gateway → F12 → Advanced Config.
+            </p>
+          )}
+
+          {showHotSyncPanel && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Tally Host</label>
+                  <input
+                    type="text"
+                    value={hotSyncHost}
+                    onChange={(e) => setHotSyncHost(e.target.value)}
+                    placeholder="localhost"
+                    className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Port</label>
+                  <input
+                    type="number"
+                    value={hotSyncPort}
+                    onChange={(e) => setHotSyncPort(Number(e.target.value))}
+                    className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">From Date</label>
+                  <input
+                    type="date"
+                    value={hotSyncFrom}
+                    onChange={(e) => setHotSyncFrom(e.target.value)}
+                    className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">To Date</label>
+                  <input
+                    type="date"
+                    value={hotSyncTo}
+                    onChange={(e) => setHotSyncTo(e.target.value)}
+                    className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Company Name (optional)</label>
+                <input
+                  type="text"
+                  value={hotSyncCompany}
+                  onChange={(e) => setHotSyncCompany(e.target.value)}
+                  placeholder="Leave blank to use Tally's currently open company"
+                  className="w-full max-w-xs px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+              <button
+                onClick={handleHotSync}
+                disabled={hotSyncing || !hotSyncFrom || !hotSyncTo}
+                className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 text-white text-xs font-medium rounded-lg hover:bg-emerald-700 disabled:bg-gray-300 transition-colors"
+              >
+                <Wifi className="w-3.5 h-3.5" />
+                {hotSyncing ? 'Pulling from Tally…' : 'Pull Vouchers Now'}
+              </button>
+              {hotSyncResult && (
+                <p className="text-xs text-green-700 font-medium">
+                  ✓ {hotSyncResult.created} vouchers pulled, {hotSyncResult.skipped} already existed.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* ── Audit Trail ────────────────────────────────── */}
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 mb-5">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+              <History className="w-4 h-4 text-purple-600" /> Audit Trail
+            </h2>
+            <button
+              onClick={() => {
+                setShowTrailPanel((v) => !v);
+                if (!showTrailPanel && trail.length === 0) handleLoadTrail();
+              }}
+              className="text-xs text-blue-600 hover:text-blue-800"
+            >
+              {showTrailPanel ? 'Hide' : 'View log'}
+            </button>
+          </div>
+
+          {!showTrailPanel && (
+            <p className="text-xs text-gray-400">
+              Immutable log of every status change, deletion, import, and export. Legal-grade working paper evidence.
+            </p>
+          )}
+
+          {showTrailPanel && (
+            <div>
+              <button
+                onClick={handleLoadTrail}
+                disabled={trailLoading}
+                className="mb-3 text-xs text-blue-600 hover:text-blue-800 disabled:text-gray-400"
+              >
+                {trailLoading ? 'Loading…' : '↻ Refresh'}
+              </button>
+              {trail.length === 0 && !trailLoading && (
+                <p className="text-xs text-gray-400 py-2">No log entries yet.</p>
+              )}
+              {trail.length > 0 && (
+                <ol className="relative border-l border-gray-200 ml-3 space-y-4">
+                  {trail.map((entry) => (
+                    <li key={entry.id} className="ml-4">
+                      <span className="absolute -left-1.5 mt-1.5 w-3 h-3 rounded-full border border-white bg-purple-400" />
+                      <p className="text-xs text-gray-400">
+                        {new Date(entry.timestamp).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
+                        {' · '}<span className="font-medium text-gray-700">{entry.user_name}</span>
+                      </p>
+                      <p className="text-sm text-gray-800 mt-0.5">{entry.description}</p>
+                      <span className={`inline-block mt-1 text-xs px-1.5 py-0.5 rounded font-medium ${
+                        entry.action === 'deleted' ? 'bg-red-100 text-red-700' :
+                        entry.action === 'finalized' ? 'bg-green-100 text-green-700' :
+                        entry.action === 'status_changed' ? 'bg-yellow-100 text-yellow-700' :
+                        entry.action === 'imported' ? 'bg-blue-100 text-blue-700' :
+                        'bg-gray-100 text-gray-600'
+                      }`}>
+                        {entry.action}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              )}
             </div>
           )}
         </div>
@@ -594,7 +916,6 @@ export default function AuditDetail() {
             </button>
           </div>
 
-          {/* Filter tabs */}
           <div className="flex gap-1 border-b border-gray-100 mb-4 overflow-x-auto">
             {TABS.map((t) => (
               <button
@@ -619,28 +940,14 @@ export default function AuditDetail() {
             </div>
           )}
 
-          {/* Virtual scroll container */}
-          <div
-            ref={parentRef}
-            className="overflow-auto"
-            style={{ maxHeight: '60vh' }}
-          >
-            <div
-              style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: 'relative' }}
-            >
+          <div ref={parentRef} className="overflow-auto" style={{ maxHeight: '60vh' }}>
+            <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: 'relative' }}>
               {rowVirtualizer.getVirtualItems().map((vRow) => {
                 const item = filtered[vRow.index];
                 return (
                   <div
                     key={item.id}
-                    style={{
-                      position: 'absolute',
-                      top: 0,
-                      left: 0,
-                      width: '100%',
-                      transform: `translateY(${vRow.start}px)`,
-                      paddingBottom: '8px',
-                    }}
+                    style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vRow.start}px)`, paddingBottom: '8px' }}
                   >
                     <VerificationItemCard
                       item={item}
@@ -667,10 +974,7 @@ export default function AuditDetail() {
             <strong>{selected.size}</strong> item{selected.size !== 1 ? 's' : ''} selected
           </p>
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => setSelected(new Set())}
-              className="text-sm text-gray-500 hover:text-gray-700"
-            >
+            <button onClick={() => setSelected(new Set())} className="text-sm text-gray-500 hover:text-gray-700">
               Clear
             </button>
             <button
@@ -691,17 +995,12 @@ export default function AuditDetail() {
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm mx-4 p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-base font-semibold text-gray-900">Reject Item</h2>
-              <button
-                onClick={() => setRejectState({ open: false, itemId: null, reason: '' })}
-                className="text-gray-400 hover:text-gray-600"
-              >
+              <button onClick={() => setRejectState({ open: false, itemId: null, reason: '' })} className="text-gray-400 hover:text-gray-600">
                 <X className="w-5 h-5" />
               </button>
             </div>
             <div className="mb-4">
-              <label className="block text-xs font-medium text-gray-700 mb-1">
-                Rejection reason *
-              </label>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Rejection reason *</label>
               <textarea
                 value={rejectState.reason}
                 onChange={(e) => setRejectState((s) => ({ ...s, reason: e.target.value }))}

@@ -12,6 +12,7 @@ from app.models.document import Document, DocumentCategory
 from app.models.user import User
 from app.routes.auth import get_current_user
 from app.utils.s3 import generate_presigned_url
+from app.utils.audit_log import log_action
 from datetime import datetime
 
 router = APIRouter(tags=["verification_items"])
@@ -52,6 +53,18 @@ def create_verification_item(
         workspace_id=current_user.workspace_id,
     )
     db.add(db_item)
+    db.flush()
+    log_action(
+        db,
+        action="created",
+        entity_type="verification_item",
+        entity_id=db_item.id,
+        audit_id=audit_id,
+        description=f"Item created: "{item.title}"",
+        user_id=current_user.id,
+        user_name=current_user.name,
+        workspace_id=current_user.workspace_id,
+    )
     db.commit()
     db.refresh(db_item)
     return db_item
@@ -71,10 +84,30 @@ def update_verification_item(
     if not item:
         raise HTTPException(status_code=404, detail="Verification item not found")
 
-    for field, value in update.dict(exclude_unset=True).items():
-        setattr(item, field, value)
+    changes = {}
+    update_data = update.dict(exclude_unset=True)
+    for field, new_val in update_data.items():
+        old_val = getattr(item, field, None)
+        if old_val != new_val:
+            changes[field] = [str(old_val), str(new_val)]
+        setattr(item, field, new_val)
 
     item.updated_at = datetime.utcnow()
+
+    action = "status_changed" if "status" in changes else "updated"
+    description = f"Status → {update_data['status']}" if "status" in changes else f"Item updated: {', '.join(changes.keys())}"
+    log_action(
+        db,
+        action=action,
+        entity_type="verification_item",
+        entity_id=item_id,
+        audit_id=item.audit_id,
+        description=description,
+        changes=changes if changes else None,
+        user_id=current_user.id,
+        user_name=current_user.name,
+        workspace_id=current_user.workspace_id,
+    )
     db.commit()
     db.refresh(item)
     return item
@@ -92,11 +125,25 @@ def bulk_verify_items(
     ).all()
 
     now = datetime.utcnow()
+    audit_ids = set()
     for item in items:
         item.status = VerificationStatus.VERIFIED
         if payload.ca_notes:
             item.ca_notes = payload.ca_notes
         item.updated_at = now
+        audit_ids.add(item.audit_id)
+
+    for aid in audit_ids:
+        log_action(
+            db,
+            action="status_changed",
+            entity_type="verification_item",
+            audit_id=aid,
+            description=f"Bulk verified {sum(1 for i in items if i.audit_id == aid)} items",
+            user_id=current_user.id,
+            user_name=current_user.name,
+            workspace_id=current_user.workspace_id,
+        )
 
     db.commit()
     for item in items:
@@ -116,6 +163,18 @@ def delete_verification_item(
     ).first()
     if not item:
         raise HTTPException(status_code=404, detail="Verification item not found")
+
+    log_action(
+        db,
+        action="deleted",
+        entity_type="verification_item",
+        entity_id=item_id,
+        audit_id=item.audit_id,
+        description=f"Item deleted: "{item.title}"",
+        user_id=current_user.id,
+        user_name=current_user.name,
+        workspace_id=current_user.workspace_id,
+    )
     db.delete(item)
     db.commit()
     return {"status": "success"}
@@ -133,7 +192,6 @@ def get_item_evidence(
         Document.workspace_id == current_user.workspace_id,
     ).all()
 
-    # Return presigned URLs so evidence images are never exposed as static S3 links
     result = []
     for doc in docs:
         doc_dict = {

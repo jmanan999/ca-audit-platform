@@ -5,6 +5,7 @@ from app.core.database import init_db
 from app.routes import auth, clients, audits, tasks, documents
 from app.routes import verification_items, brief_parsing, executives
 from app.routes import request_list, tally_bridge
+from app.routes import audit_trail, tally_hot_sync, bulk_upload, export, risk_summary
 import logging
 
 logger = logging.getLogger(__name__)
@@ -34,6 +35,13 @@ app.include_router(request_list.router, prefix="/api/v1")
 app.include_router(tally_bridge.router, prefix="/api/v1")
 app.include_router(executives.router)
 
+# Phase 2 feature routers
+app.include_router(audit_trail.router, prefix="/api/v1")
+app.include_router(tally_hot_sync.router, prefix="/api/v1")
+app.include_router(bulk_upload.router, prefix="/api/v1")
+app.include_router(export.router, prefix="/api/v1")
+app.include_router(risk_summary.router, prefix="/api/v1")
+
 def initialize_firebase():
     try:
         import firebase_admin
@@ -48,7 +56,6 @@ def initialize_firebase():
                 key_data = json.loads(settings.FIREBASE_SERVICE_ACCOUNT_KEY)
                 cred = firebase_creds.Certificate(key_data)
             except (json.JSONDecodeError, ValueError):
-                # Treat as a file path
                 cred = firebase_creds.Certificate(settings.FIREBASE_SERVICE_ACCOUNT_KEY)
             firebase_admin.initialize_app(cred)
             logger.info("Firebase initialized with service account credentials")

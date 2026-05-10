@@ -1,3 +1,4 @@
+import re
 import boto3
 import logging
 from typing import Dict, Any, Optional, List
@@ -5,6 +6,9 @@ from app.core.config import settings
 import base64
 import io
 from PIL import Image
+
+# Official GSTIN format: 2-digit state code + PAN (10 chars) + 1 digit + Z + 1 check digit
+GSTIN_RE = re.compile(r"\b[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}\b")
 
 logger = logging.getLogger(__name__)
 
@@ -165,26 +169,55 @@ class DocumentOCRService:
         
         return table_data
     
+    def extract_gstin(self, text: str) -> Optional[str]:
+        """Find the first valid GSTIN in OCR text."""
+        match = GSTIN_RE.search(text.upper())
+        return match.group(0) if match else None
+
+    def validate_gstin_against_client(
+        self,
+        extracted_gstin: Optional[str],
+        client_gstin: Optional[str],
+    ) -> Dict[str, Any]:
+        """
+        Compare the GSTIN extracted from a document with the client's registered GSTIN.
+        Returns a validation result dict that can be stored in document.extracted_data.
+        """
+        if not extracted_gstin:
+            return {"gstin_found": False, "gstin_valid": None, "gstin_mismatch": False}
+
+        if not client_gstin:
+            return {"gstin_found": True, "extracted_gstin": extracted_gstin, "gstin_valid": None, "gstin_mismatch": False}
+
+        mismatch = extracted_gstin.upper() != client_gstin.upper()
+        return {
+            "gstin_found": True,
+            "extracted_gstin": extracted_gstin,
+            "client_gstin": client_gstin,
+            "gstin_valid": not mismatch,
+            "gstin_mismatch": mismatch,
+            "risk_flag": "GSTIN_MISMATCH" if mismatch else None,
+        }
+
     async def extract_invoices_data(self, ocr_result: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Extract structured invoice data from OCR result
-        
-        Args:
-            ocr_result: Result from OCR processing
-            
-        Returns:
-            Dictionary with invoice fields
+        Extract structured invoice data from OCR result.
+
+        The GSTIN is extracted with a strict regex rather than keyword matching,
+        so it works even when the label format varies.
         """
+        raw_text = ocr_result.get("text", "")
+        extracted_gstin = self.extract_gstin(raw_text)
         return {
             "invoice_number": self._extract_field_value(ocr_result, "invoice", "number"),
             "date": self._extract_field_value(ocr_result, "date", "invoice date"),
             "due_date": self._extract_field_value(ocr_result, "due date", "due"),
             "vendor_name": self._extract_field_value(ocr_result, "vendor", "supplier"),
-            "vendor_gstin": self._extract_field_value(ocr_result, "gstin", "gst"),
+            "vendor_gstin": extracted_gstin,
             "total_amount": self._extract_field_value(ocr_result, "total", "amount"),
             "gst_amount": self._extract_field_value(ocr_result, "gst", "tax"),
             "line_items": self._extract_line_items(ocr_result),
-            "confidence": ocr_result.get("confidence", 0.0)
+            "confidence": ocr_result.get("confidence", 0.0),
         }
     
     def _extract_field_value(self, ocr_result: Dict, *patterns: str) -> Optional[str]:

@@ -50,6 +50,7 @@ export const auditsAPI = {
     apiClient.get(`/api/v1/audits/${id}/request-list`),
   markRequested: (id: number) =>
     apiClient.post(`/api/v1/audits/${id}/mark-requested`),
+  // Tally CSV import (existing)
   tallyImport: (id: number, file: File) => {
     const formData = new FormData();
     formData.append('file', file);
@@ -61,6 +62,23 @@ export const auditsAPI = {
     apiClient.post(`/api/v1/audits/${id}/ai-sample`, {
       min_value: minValue,
       sample_size: sampleSize,
+    }),
+  // Tally hot-sync (new): connect directly to running Tally instance
+  tallyHotSync: (id: number, params: {
+    host: string;
+    port: number;
+    from_date: string;
+    to_date: string;
+    company?: string;
+  }) => apiClient.post(`/api/v1/audits/${id}/tally-hot-sync`, params),
+  // Audit trail
+  getTrail: (id: number, skip = 0, limit = 100) =>
+    apiClient.get(`/api/v1/audits/${id}/trail`, { params: { skip, limit } }),
+  // Workpaper export
+  exportWorkpaper: (id: number, format: 'zip' | 'pdf' = 'zip') =>
+    apiClient.get(`/api/v1/audits/${id}/export`, {
+      params: { format },
+      responseType: 'blob',
     }),
 };
 
@@ -79,6 +97,16 @@ export const verificationItemsAPI = {
   delete: (itemId: number) => apiClient.delete(`/api/v1/verification-items/${itemId}`),
   getEvidence: (itemId: number) =>
     apiClient.get(`/api/v1/verification-items/${itemId}/evidence`),
+  // Bulk Excel upload (new)
+  bulkUpload: (auditId: number, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return apiClient.post(`/api/v1/audits/${auditId}/bulk-upload-items`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+  downloadTemplate: (auditId: number) =>
+    apiClient.get(`/api/v1/audits/${auditId}/bulk-upload-template`, { responseType: 'blob' }),
 };
 
 export const executivesAPI = {
@@ -111,4 +139,8 @@ export const documentsAPI = {
   },
   update: (id: number, data: any) => apiClient.put(`/api/v1/documents/${id}`, data),
   delete: (id: number) => apiClient.delete(`/api/v1/documents/${id}`),
+};
+
+export const dashboardAPI = {
+  riskSummary: () => apiClient.get('/api/v1/dashboard/risk-summary'),
 };

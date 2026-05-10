@@ -46,6 +46,22 @@ export const auditsAPI = {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },
+  getRequestList: (id: number) =>
+    apiClient.get(`/api/v1/audits/${id}/request-list`),
+  markRequested: (id: number) =>
+    apiClient.post(`/api/v1/audits/${id}/mark-requested`),
+  tallyImport: (id: number, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return apiClient.post(`/api/v1/audits/${id}/tally-import`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+  aiSample: (id: number, minValue: number, sampleSize: number) =>
+    apiClient.post(`/api/v1/audits/${id}/ai-sample`, {
+      min_value: minValue,
+      sample_size: sampleSize,
+    }),
 };
 
 export const verificationItemsAPI = {

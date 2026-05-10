@@ -121,6 +121,13 @@ export interface VerificationItem {
   ca_notes?: string;
   rejection_reason?: string;
   is_ai_parsed: boolean;
+  transaction_id?: string;
+  ledger_name?: string;
+  vendor_name?: string;
+  transaction_date?: string;
+  is_tally_import?: boolean;
+  is_high_risk?: boolean;
+  risk_reason?: string;
   created_at: string;
   updated_at: string;
 }

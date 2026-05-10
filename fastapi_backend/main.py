@@ -4,6 +4,7 @@ from app.core.config import settings
 from app.core.database import init_db
 from app.routes import auth, clients, audits, tasks, documents
 from app.routes import verification_items, brief_parsing, executives
+from app.routes import request_list, tally_bridge
 import logging
 
 logger = logging.getLogger(__name__)
@@ -29,6 +30,8 @@ app.include_router(tasks.router)
 app.include_router(documents.router)
 app.include_router(verification_items.router, prefix="/api/v1")
 app.include_router(brief_parsing.router, prefix="/api/v1")
+app.include_router(request_list.router, prefix="/api/v1")
+app.include_router(tally_bridge.router, prefix="/api/v1")
 app.include_router(executives.router)
 
 def initialize_firebase():

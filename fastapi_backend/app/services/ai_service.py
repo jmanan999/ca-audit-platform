@@ -8,6 +8,88 @@ logger = logging.getLogger(__name__)
 
 ITEM_TYPES = ["vehicle", "property", "equipment", "inventory", "bank_account", "financial_record", "other"]
 
+# Default document requirements per audit type (fallback if Gemini is unavailable)
+AUDIT_DOCUMENT_REQUIREMENTS = {
+    "statutory": [
+        "Bank Statements (all bank accounts)",
+        "Fixed Asset Register",
+        "Board Meeting Minutes",
+        "Previous Year Audit Report",
+        "Trial Balance",
+        "General Ledger",
+        "Stock / Inventory Register",
+        "Debtors & Creditors Ledger",
+        "Loan Statements",
+    ],
+    "tax": [
+        "GST Reconciliation Statement",
+        "TDS Challans",
+        "Form 26AS",
+        "Income Tax Return (ITR)",
+        "Advance Tax Challans",
+        "Profit & Loss Statement",
+        "Balance Sheet",
+        "Cash Flow Statement",
+    ],
+    "gst": [
+        "GSTR-1 Filed Returns",
+        "GSTR-3B Filed Returns",
+        "GSTR-2A / 2B Reconciliation",
+        "Purchase Invoices",
+        "Sales Invoices",
+        "E-way Bills",
+        "Input Tax Credit (ITC) Ledger",
+        "GST Payment Challans",
+    ],
+    "internal": [
+        "Internal Control Documentation",
+        "Process Flowcharts",
+        "Risk Register",
+        "Previous Internal Audit Reports",
+        "Policy & Procedure Manuals",
+        "Expense Reports",
+        "Payroll Records",
+        "Vendor Master List",
+    ],
+}
+
+DOCUMENT_REQUEST_PROMPT = """You are a senior Chartered Accountant in India preparing for a {audit_type} audit.
+
+Scope of this audit: {scope}
+
+Documents already received from the client: {uploaded_docs}
+
+Based on the audit type and scope, generate a precise list of documents that are STILL NEEDED (not already received).
+For each document, provide a one-line explanation of why it is needed for this specific audit.
+
+Return ONLY a JSON array. Each element must have exactly:
+- "document": short name of the document
+- "reason": one-line explanation of why it is needed
+- "priority": "HIGH" | "MEDIUM" | "LOW"
+
+No preamble, no explanation outside the JSON."""
+
+RISK_SAMPLING_PROMPT = """You are an expert forensic auditor. Analyze the following list of financial transactions imported from Tally accounting software.
+
+Your task: identify the TOP {sample_size} highest-risk transactions from a sample of {total} total transactions.
+
+Flag transactions based on these risk factors:
+1. HIGH VALUE: Transactions above ₹{min_value:,.0f}
+2. ROUND NUMBERS: Exactly round amounts like ₹50,000 / ₹1,00,000 (suspicious vs. ₹98,432)
+3. ODD TIMING: Transactions on Sundays, public holidays, or between 11 PM – 6 AM
+4. JUST-BELOW LIMIT: Multiple payments to same vendor just below ₹10,000 (tax avoidance pattern)
+5. DUPLICATE PATTERN: Same amount to same vendor within 3 days
+
+Transactions (JSON):
+{transactions}
+
+Return ONLY a JSON array. Each element must have exactly:
+- "transaction_id": the id from the input data
+- "risk_level": "HIGH" | "MEDIUM" | "LOW"
+- "risk_reason": one concise sentence explaining why this transaction is flagged
+
+No preamble, no extra keys."""
+
 BRIEF_PARSE_PROMPT = """You are a CA audit assistant. Extract all physical assets and verification items from this audit brief document.
 For each item return an object with exactly these keys:
 - "title": short name of the asset (e.g. "Toyota Camry", "Office at MG Road")
@@ -52,6 +134,128 @@ async def parse_brief_with_gemini(text: str) -> List[Dict[str, str]]:
         return valid
     except Exception as e:
         logger.error("Gemini brief parse failed: %s", e)
+        return []
+
+
+async def generate_document_request(
+    audit_type: str,
+    scope: str,
+    uploaded_doc_names: List[str],
+) -> List[Dict[str, str]]:
+    """
+    Generate a list of missing required documents for an audit using Gemini.
+    Falls back to a static rule-based list if Gemini is unavailable.
+    """
+    # Rule-based fallback
+    key = audit_type.lower().split()[0]  # "Statutory Audit" → "statutory"
+    baseline = AUDIT_DOCUMENT_REQUIREMENTS.get(key, AUDIT_DOCUMENT_REQUIREMENTS["statutory"])
+    uploaded_lower = {d.lower() for d in uploaded_doc_names}
+
+    if not settings.GEMINI_API_KEY:
+        return [
+            {"document": d, "reason": "Standard requirement for this audit type.", "priority": "HIGH"}
+            for d in baseline
+            if not any(word in " ".join(uploaded_lower) for word in d.lower().split()[:2])
+        ]
+
+    try:
+        genai.configure(api_key=settings.GEMINI_API_KEY)
+        model = genai.GenerativeModel(
+            model_name="gemini-1.5-flash",
+            generation_config=genai.GenerationConfig(
+                response_mime_type="application/json",
+                temperature=0.2,
+            ),
+        )
+        uploaded_str = ", ".join(uploaded_doc_names) if uploaded_doc_names else "None yet"
+        prompt = DOCUMENT_REQUEST_PROMPT.format(
+            audit_type=audit_type,
+            scope=scope or "General audit scope",
+            uploaded_docs=uploaded_str,
+        )
+        response = model.generate_content(prompt)
+        items = json.loads(response.text)
+        if not isinstance(items, list):
+            items = items.get("items", [])
+        valid = []
+        for item in items:
+            if not isinstance(item, dict) or "document" not in item:
+                continue
+            valid.append({
+                "document": str(item.get("document", "")),
+                "reason": str(item.get("reason", "")),
+                "priority": item.get("priority", "MEDIUM") if item.get("priority") in ("HIGH", "MEDIUM", "LOW") else "MEDIUM",
+            })
+        return valid
+    except Exception as e:
+        logger.error("Gemini document request generation failed: %s", e)
+        return [
+            {"document": d, "reason": "Standard requirement for this audit type.", "priority": "HIGH"}
+            for d in baseline
+        ]
+
+
+async def run_risk_sampling(
+    transactions: List[Dict[str, Any]],
+    min_value: float = 50000.0,
+    sample_size: int = 25,
+) -> List[Dict[str, Any]]:
+    """
+    Use Gemini to identify high-risk transactions from Tally-imported data.
+    Returns a list of {transaction_id, risk_level, risk_reason}.
+    """
+    if not transactions:
+        return []
+
+    if not settings.GEMINI_API_KEY:
+        # Fallback: flag by value only
+        flagged = []
+        for t in transactions:
+            try:
+                val = float(str(t.get("reference_value", "0")).replace(",", "").replace("₹", ""))
+            except ValueError:
+                val = 0.0
+            if val >= min_value:
+                flagged.append({
+                    "transaction_id": str(t.get("transaction_id") or t.get("id")),
+                    "risk_level": "HIGH",
+                    "risk_reason": f"Transaction value ₹{val:,.0f} exceeds threshold ₹{min_value:,.0f}.",
+                })
+        return flagged[:sample_size]
+
+    try:
+        genai.configure(api_key=settings.GEMINI_API_KEY)
+        model = genai.GenerativeModel(
+            model_name="gemini-1.5-flash",
+            generation_config=genai.GenerationConfig(
+                response_mime_type="application/json",
+                temperature=0.1,
+            ),
+        )
+        # Limit payload to avoid token overload
+        payload = transactions[:500]
+        prompt = RISK_SAMPLING_PROMPT.format(
+            sample_size=sample_size,
+            total=len(transactions),
+            min_value=min_value,
+            transactions=json.dumps(payload, default=str),
+        )
+        response = model.generate_content(prompt)
+        results = json.loads(response.text)
+        if not isinstance(results, list):
+            results = results.get("items", [])
+        valid = []
+        for r in results:
+            if not isinstance(r, dict) or "transaction_id" not in r:
+                continue
+            valid.append({
+                "transaction_id": str(r["transaction_id"]),
+                "risk_level": r.get("risk_level", "MEDIUM"),
+                "risk_reason": str(r.get("risk_reason", "")),
+            })
+        return valid[:sample_size]
+    except Exception as e:
+        logger.error("Gemini risk sampling failed: %s", e)
         return []
 
 

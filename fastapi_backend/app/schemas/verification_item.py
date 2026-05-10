@@ -39,6 +39,13 @@ class VerificationItemResponse(BaseModel):
     ca_notes: Optional[str] = None
     rejection_reason: Optional[str] = None
     is_ai_parsed: bool
+    transaction_id: Optional[str] = None
+    ledger_name: Optional[str] = None
+    vendor_name: Optional[str] = None
+    transaction_date: Optional[datetime] = None
+    is_tally_import: bool = False
+    is_high_risk: bool = False
+    risk_reason: Optional[str] = None
     workspace_id: Optional[int] = None
     created_at: datetime
     updated_at: datetime

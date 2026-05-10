@@ -11,7 +11,7 @@ import FinalApprovalModal from '@/components/FinalApprovalModal';
 import { useAuthGuard } from '@/lib/useAuthGuard';
 import { useVerificationItemStore, useAuditStore, useClientStore, VerificationItem } from '@/lib/store';
 import { auditsAPI, clientsAPI, verificationItemsAPI } from '@/lib/api';
-import { ArrowLeft, Plus, CheckSquare, X, AlertTriangle, Calendar, ChevronDown } from 'lucide-react';
+import { ArrowLeft, Plus, CheckSquare, X, Calendar, ChevronDown, MessageCircle, Mail, Upload, Zap, ShieldAlert } from 'lucide-react';
 
 type FilterTab = 'all' | 'pending' | 'evidence_submitted' | 'verified' | 'rejected';
 type RejectState = { open: boolean; itemId: number | null; reason: string };
@@ -45,6 +45,23 @@ export default function AuditDetail() {
   const [bulkApproving, setBulkApproving] = useState(false);
   const [showBriefUploader, setShowBriefUploader] = useState(false);
 
+  // Document Request state
+  const [showRequestPanel, setShowRequestPanel] = useState(false);
+  const [requestList, setRequestList] = useState<{ document: string; reason: string; priority: string }[]>([]);
+  const [requestLoading, setRequestLoading] = useState(false);
+  const [lastRequestedAt, setLastRequestedAt] = useState<string | null>(null);
+  const [markingRequested, setMarkingRequested] = useState(false);
+
+  // Tally Bridge state
+  const [showTallyPanel, setShowTallyPanel] = useState(false);
+  const [tallyFile, setTallyFile] = useState<File | null>(null);
+  const [tallyImporting, setTallyImporting] = useState(false);
+  const [tallyResult, setTallyResult] = useState<{ created: number; skipped: number } | null>(null);
+  const [minValue, setMinValue] = useState(50000);
+  const [sampleSize, setSampleSize] = useState(25);
+  const [sampling, setSampling] = useState(false);
+  const [sampleResult, setSampleResult] = useState<{ total_transactions: number; flagged_count: number } | null>(null);
+
   const parentRef = useRef<HTMLDivElement>(null);
 
   const clientName = clients.find((c) => c.id === audit?.client_id)?.company_name;
@@ -77,6 +94,9 @@ export default function AuditDetail() {
         setAudit(auditRes.data);
         setItems(itemsRes.data);
         setClients(clientsRes.data);
+        if (auditRes.data.last_requested_at) {
+          setLastRequestedAt(auditRes.data.last_requested_at);
+        }
       } catch {
         router.push('/audits');
       } finally {
@@ -164,6 +184,97 @@ export default function AuditDetail() {
   const handleFinalized = () => {
     setAudit((a: any) => ({ ...a, status: 'completed' }));
     updateAudit(auditId!, { status: 'completed' });
+  };
+
+  const handleGenerateRequestList = async () => {
+    if (!auditId) return;
+    setRequestLoading(true);
+    try {
+      const res = await auditsAPI.getRequestList(auditId);
+      setRequestList(res.data.requirements || []);
+      if (res.data.last_requested_at) setLastRequestedAt(res.data.last_requested_at);
+    } catch {
+      alert('Failed to generate request list');
+    } finally {
+      setRequestLoading(false);
+    }
+  };
+
+  const handleMarkRequested = async () => {
+    if (!auditId) return;
+    setMarkingRequested(true);
+    try {
+      const res = await auditsAPI.markRequested(auditId);
+      setLastRequestedAt(res.data.last_requested_at);
+    } catch {
+      alert('Failed to mark as requested');
+    } finally {
+      setMarkingRequested(false);
+    }
+  };
+
+  const buildForwardMessage = () => {
+    const header = `Dear Client,\n\nPlease provide the following documents for our upcoming ${audit?.audit_type || 'Audit'}:\n\n`;
+    const body = requestList
+      .map((r, i) => `${i + 1}. ${r.document}`)
+      .join('\n');
+    return header + body + '\n\nKindly share them at the earliest.\n\nThank you.';
+  };
+
+  const handleWhatsApp = async () => {
+    await handleMarkRequested();
+    const msg = encodeURIComponent(buildForwardMessage());
+    window.open(`whatsapp://send?text=${msg}`, '_blank');
+  };
+
+  const handleEmail = async () => {
+    await handleMarkRequested();
+    const subject = encodeURIComponent(`Document Request – ${audit?.audit_type || 'Audit'}`);
+    const body = encodeURIComponent(buildForwardMessage());
+    window.open(`mailto:?subject=${subject}&body=${body}`, '_blank');
+  };
+
+  const handleTallyImport = async () => {
+    if (!auditId || !tallyFile) return;
+    setTallyImporting(true);
+    try {
+      const res = await auditsAPI.tallyImport(auditId, tallyFile);
+      setTallyResult({ created: res.data.created, skipped: res.data.skipped });
+      if (res.data.items?.length > 0) {
+        addItems(res.data.items.map((i: any) => ({
+          ...i,
+          audit_id: auditId,
+          item_type: 'financial_record',
+          status: 'pending',
+          is_ai_parsed: false,
+          is_tally_import: true,
+          is_high_risk: false,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })));
+      }
+      setTallyFile(null);
+    } catch (err: any) {
+      alert(err?.response?.data?.detail || 'Import failed');
+    } finally {
+      setTallyImporting(false);
+    }
+  };
+
+  const handleAiSample = async () => {
+    if (!auditId) return;
+    setSampling(true);
+    try {
+      const res = await auditsAPI.aiSample(auditId, minValue, sampleSize);
+      setSampleResult({ total_transactions: res.data.total_transactions, flagged_count: res.data.flagged_count });
+      // Refresh items to pick up is_high_risk flags
+      const refreshed = await verificationItemsAPI.list(auditId, { limit: 500 });
+      setItems(refreshed.data);
+    } catch (err: any) {
+      alert(err?.response?.data?.detail || 'AI sampling failed');
+    } finally {
+      setSampling(false);
+    }
   };
 
   const TABS: { key: FilterTab; label: string }[] = [
@@ -274,6 +385,200 @@ export default function AuditDetail() {
             <p className="text-xs text-gray-400">
               Upload an Excel or PDF brief to auto-create verification items from client records.
             </p>
+          )}
+        </div>
+
+        {/* ── Document Request Generator ───────────────── */}
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 mb-5">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h2 className="text-sm font-semibold text-gray-900">Document Request Generator</h2>
+              {lastRequestedAt && (
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Last sent to client: {new Date(lastRequestedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                </p>
+              )}
+            </div>
+            <button
+              onClick={() => {
+                setShowRequestPanel((v) => !v);
+                if (!showRequestPanel && requestList.length === 0) handleGenerateRequestList();
+              }}
+              className="text-xs text-blue-600 hover:text-blue-800"
+            >
+              {showRequestPanel ? 'Hide' : 'Generate list'}
+            </button>
+          </div>
+
+          {!showRequestPanel && (
+            <p className="text-xs text-gray-400">
+              AI analyses the audit type &amp; scope, checks what&#39;s already uploaded, and generates a missing-document checklist you can forward via WhatsApp or Email.
+            </p>
+          )}
+
+          {showRequestPanel && (
+            <div>
+              <div className="flex items-center gap-2 mb-4">
+                <button
+                  onClick={handleGenerateRequestList}
+                  disabled={requestLoading}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 disabled:bg-gray-300 transition-colors"
+                >
+                  <Zap className="w-3.5 h-3.5" />
+                  {requestLoading ? 'Analysing…' : 'Regenerate'}
+                </button>
+                {requestList.length > 0 && (
+                  <>
+                    <button
+                      onClick={handleWhatsApp}
+                      disabled={markingRequested}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white text-xs font-medium rounded-lg hover:bg-green-700 disabled:bg-gray-300 transition-colors"
+                    >
+                      <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
+                    </button>
+                    <button
+                      onClick={handleEmail}
+                      disabled={markingRequested}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700 disabled:bg-gray-300 transition-colors"
+                    >
+                      <Mail className="w-3.5 h-3.5" /> Email
+                    </button>
+                  </>
+                )}
+              </div>
+
+              {requestLoading && (
+                <div className="flex items-center gap-2 py-4 text-sm text-gray-500">
+                  <div className="animate-spin w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full" />
+                  Gemini is analysing audit requirements…
+                </div>
+              )}
+
+              {!requestLoading && requestList.length > 0 && (
+                <ul className="divide-y divide-gray-100">
+                  {requestList.map((r, i) => (
+                    <li key={i} className="py-2.5 flex items-start gap-3">
+                      <span className={`mt-0.5 shrink-0 text-xs font-semibold px-1.5 py-0.5 rounded ${
+                        r.priority === 'HIGH' ? 'bg-red-100 text-red-700' :
+                        r.priority === 'LOW' ? 'bg-gray-100 text-gray-500' :
+                        'bg-yellow-100 text-yellow-700'
+                      }`}>
+                        {r.priority}
+                      </span>
+                      <div>
+                        <p className="text-sm font-medium text-gray-800">{r.document}</p>
+                        <p className="text-xs text-gray-400">{r.reason}</p>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {!requestLoading && requestList.length === 0 && (
+                <p className="text-xs text-gray-400 py-2">Click &quot;Regenerate&quot; to analyse this audit.</p>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* ── Tally Bridge & AI Sampling ────────────────── */}
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 mb-5">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-gray-900">Tally / Zoho Import &amp; AI Sampling</h2>
+            <button
+              onClick={() => setShowTallyPanel((v) => !v)}
+              className="text-xs text-blue-600 hover:text-blue-800"
+            >
+              {showTallyPanel ? 'Hide' : 'Open'}
+            </button>
+          </div>
+
+          {!showTallyPanel && (
+            <p className="text-xs text-gray-400">
+              Import a Tally CSV to auto-create verification tasks, then let Gemini flag the 25 riskiest transactions for junior auditors to chase.
+            </p>
+          )}
+
+          {showTallyPanel && (
+            <div className="space-y-5">
+              {/* Import section */}
+              <div>
+                <p className="text-xs font-medium text-gray-700 mb-2">Step 1 — Import Tally CSV</p>
+                <p className="text-xs text-gray-400 mb-3">
+                  Export your Trial Balance or Ledger from Tally as CSV. Required columns: <code className="bg-gray-100 px-1 rounded">transaction_id</code>, <code className="bg-gray-100 px-1 rounded">ledger_name</code>, <code className="bg-gray-100 px-1 rounded">amount</code>. Optional: <code className="bg-gray-100 px-1 rounded">vendor_name</code>, <code className="bg-gray-100 px-1 rounded">transaction_date</code>, <code className="bg-gray-100 px-1 rounded">description</code>, <code className="bg-gray-100 px-1 rounded">voucher_type</code>.
+                </p>
+                <div className="flex items-center gap-3">
+                  <label className="flex items-center gap-2 px-3 py-1.5 border border-dashed border-gray-300 rounded-lg text-xs text-gray-500 hover:border-blue-400 hover:text-blue-600 cursor-pointer transition-colors">
+                    <Upload className="w-3.5 h-3.5" />
+                    {tallyFile ? tallyFile.name : 'Choose CSV file'}
+                    <input
+                      type="file"
+                      accept=".csv"
+                      className="hidden"
+                      onChange={(e) => setTallyFile(e.target.files?.[0] || null)}
+                    />
+                  </label>
+                  <button
+                    onClick={handleTallyImport}
+                    disabled={!tallyFile || tallyImporting}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 disabled:bg-gray-300 transition-colors"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    {tallyImporting ? 'Importing…' : 'Import'}
+                  </button>
+                </div>
+                {tallyResult && (
+                  <p className="mt-2 text-xs text-green-700 font-medium">
+                    ✓ {tallyResult.created} transactions imported, {tallyResult.skipped} skipped (duplicates or incomplete rows).
+                  </p>
+                )}
+              </div>
+
+              {/* Sampling section */}
+              <div className="border-t border-gray-100 pt-5">
+                <p className="text-xs font-medium text-gray-700 mb-2">Step 2 — Run AI Risk Sampling</p>
+                <p className="text-xs text-gray-400 mb-3">
+                  Gemini will scan all imported transactions and flag the riskiest ones — high-value, round numbers, odd-hour payments, and vendor-splitting patterns.
+                </p>
+                <div className="flex flex-wrap items-end gap-4 mb-3">
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">High-value threshold (₹)</label>
+                    <input
+                      type="number"
+                      value={minValue}
+                      onChange={(e) => setMinValue(Number(e.target.value))}
+                      step={5000}
+                      min={0}
+                      className="w-36 px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Max samples to flag</label>
+                    <input
+                      type="number"
+                      value={sampleSize}
+                      onChange={(e) => setSampleSize(Number(e.target.value))}
+                      min={5}
+                      max={100}
+                      className="w-24 px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+                <button
+                  onClick={handleAiSample}
+                  disabled={sampling}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-orange-600 text-white text-xs font-medium rounded-lg hover:bg-orange-700 disabled:bg-gray-300 transition-colors"
+                >
+                  <ShieldAlert className="w-3.5 h-3.5" />
+                  {sampling ? 'Gemini is sampling…' : 'Run AI Sample'}
+                </button>
+                {sampleResult && (
+                  <p className="mt-2 text-xs text-orange-700 font-medium">
+                    ✓ {sampleResult.flagged_count} high-risk items flagged out of {sampleResult.total_transactions} transactions. They are now marked in the checklist below.
+                  </p>
+                )}
+              </div>
+            </div>
           )}
         </div>
 

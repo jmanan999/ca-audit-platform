@@ -1,6 +1,6 @@
 import React from 'react';
 import { useRouter } from 'next/router';
-import { Camera, Check, X, Trash2, AlertTriangle } from 'lucide-react';
+import { Camera, Check, X, Trash2, AlertTriangle, ShieldAlert } from 'lucide-react';
 import StatusBadge from './StatusBadge';
 import { VerificationItem } from '@/lib/store';
 
@@ -80,6 +80,11 @@ export default function VerificationItemCard({
                   <AlertTriangle className="w-3 h-3" /> AI parsed
                 </span>
               )}
+              {item.is_high_risk && (
+                <span className="flex items-center gap-1 px-2 py-0.5 text-xs bg-red-50 text-red-700 border border-red-200 rounded font-semibold">
+                  <ShieldAlert className="w-3 h-3" /> High Risk
+                </span>
+              )}
             </div>
 
             <p className="text-sm font-semibold text-gray-900 truncate">{item.title}</p>
@@ -88,8 +93,13 @@ export default function VerificationItemCard({
             )}
             {item.reference_value && (
               <p className="text-xs text-gray-400 mt-0.5">
-                <span className="font-medium text-gray-500">Client claims: </span>
+                <span className="font-medium text-gray-500">Value: </span>
                 {item.reference_value}
+              </p>
+            )}
+            {item.risk_reason && (
+              <p className="text-xs text-red-500 mt-0.5">
+                <span className="font-medium">Risk: </span>{item.risk_reason}
               </p>
             )}
           </div>

@@ -30,6 +30,7 @@ class Audit(Base):
     deadline = Column(DateTime)
     completion_date = Column(DateTime, nullable=True)
     description = Column(Text, nullable=True)
+    last_requested_at = Column(DateTime, nullable=True)  # Last time CA sent document request to client
     workspace_id = Column(Integer, nullable=True, index=True)  # For multi-tenancy
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

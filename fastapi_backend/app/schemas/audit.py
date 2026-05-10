@@ -27,6 +27,7 @@ class AuditResponse(AuditBase):
     status: AuditStatus
     start_date: Optional[datetime] = None
     completion_date: Optional[datetime] = None
+    last_requested_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
     

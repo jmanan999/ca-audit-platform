@@ -1,31 +1,42 @@
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
 
 class DefaultFirebaseOptions {
   static FirebaseOptions get currentPlatform {
-    return web;
+    if (kIsWeb) return web;
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.android:
+        return android;
+      case TargetPlatform.iOS:
+        return ios;
+      default:
+        return web;
+    }
   }
 
-  static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'your_firebase_api_key',
-    appId: 'your_firebase_app_id',
-    messagingSenderId: 'your_firebase_messaging_sender_id',
-    projectId: 'your_firebase_project_id',
-    authDomain: 'your_firebase_auth_domain',
-    storageBucket: 'your_firebase_storage_bucket',
+  static const FirebaseOptions android = FirebaseOptions(
+    apiKey: 'AIzaSyCwoUCcGX3WY_aqkQPUI4Sn7kktwP-ftkE',
+    appId: '1:884070373693:android:d5cac1fe65a4a242308d54',
+    messagingSenderId: '884070373693',
+    projectId: 'caproject-b90de',
+    storageBucket: 'caproject-b90de.firebasestorage.app',
   );
 
-  static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'your_firebase_api_key',
-    appId: 'your_firebase_app_id',
-    messagingSenderId: 'your_firebase_messaging_sender_id',
-    projectId: 'your_firebase_project_id',
+  static const FirebaseOptions web = FirebaseOptions(
+    apiKey: 'AIzaSyDwb3sAf_FsoI6pk2cdw0zVqgn2lHjrmps',
+    appId: '1:884070373693:web:52b5a045ba1c8208308d54',
+    messagingSenderId: '884070373693',
+    projectId: 'caproject-b90de',
+    authDomain: 'caproject-b90de.firebaseapp.com',
+    storageBucket: 'caproject-b90de.firebasestorage.app',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'your_firebase_api_key',
-    appId: 'your_firebase_app_id',
-    messagingSenderId: 'your_firebase_messaging_sender_id',
-    projectId: 'your_firebase_project_id',
-    iosBundleId: 'com.ca-audit-platform.ios',
+    apiKey: 'AIzaSyCwoUCcGX3WY_aqkQPUI4Sn7kktwP-ftkE',
+    appId: '1:884070373693:android:d5cac1fe65a4a242308d54',
+    messagingSenderId: '884070373693',
+    projectId: 'caproject-b90de',
+    storageBucket: 'caproject-b90de.firebasestorage.app',
+    iosBundleId: 'com.example.caAuditPlatform',
   );
 }

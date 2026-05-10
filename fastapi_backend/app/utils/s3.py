@@ -35,6 +35,24 @@ async def delete_file_from_s3(url: str) -> bool:
     except Exception as e:
         raise Exception(f"S3 delete failed: {str(e)}")
 
+def generate_presigned_url(file_path: str, expiry: int = 900) -> str:
+    """Generate a presigned URL (default 15-min expiry) from an S3 key or existing URL."""
+    try:
+        # Extract key if a full URL was stored (legacy behaviour)
+        if file_path.startswith("https://"):
+            key = file_path.split(".amazonaws.com/", 1)[-1]
+        else:
+            key = file_path
+        return s3_client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": settings.S3_BUCKET_NAME, "Key": key},
+            ExpiresIn=expiry,
+        )
+    except Exception:
+        # Fallback to the raw path so the caller never gets None
+        return file_path
+
+
 async def get_file_from_s3(key: str) -> bytes:
     """Download file from S3"""
     try:

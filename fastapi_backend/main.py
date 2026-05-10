@@ -3,59 +3,78 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.database import init_db
 from app.routes import auth, clients, audits, tasks, documents
+from app.routes import verification_items, brief_parsing, executives
+import logging
 
-# Create FastAPI app
+logger = logging.getLogger(__name__)
+
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
     debug=settings.DEBUG
 )
 
-# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Change in production
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Include routers
 app.include_router(auth.router)
 app.include_router(clients.router)
 app.include_router(audits.router)
 app.include_router(tasks.router)
 app.include_router(documents.router)
+app.include_router(verification_items.router, prefix="/api/v1")
+app.include_router(brief_parsing.router, prefix="/api/v1")
+app.include_router(executives.router)
+
+def initialize_firebase():
+    try:
+        import firebase_admin
+        from firebase_admin import credentials as firebase_creds
+
+        if firebase_admin._apps:
+            return  # Already initialized
+
+        if settings.FIREBASE_SERVICE_ACCOUNT_KEY:
+            import json
+            try:
+                key_data = json.loads(settings.FIREBASE_SERVICE_ACCOUNT_KEY)
+                cred = firebase_creds.Certificate(key_data)
+            except (json.JSONDecodeError, ValueError):
+                # Treat as a file path
+                cred = firebase_creds.Certificate(settings.FIREBASE_SERVICE_ACCOUNT_KEY)
+            firebase_admin.initialize_app(cred)
+            logger.info("Firebase initialized with service account credentials")
+        elif settings.FIREBASE_PROJECT_ID:
+            firebase_admin.initialize_app(options={"projectId": settings.FIREBASE_PROJECT_ID})
+            logger.info("Firebase initialized with project ID: %s", settings.FIREBASE_PROJECT_ID)
+        else:
+            firebase_admin.initialize_app()
+            logger.warning("Firebase initialized without credentials (uses ADC)")
+    except Exception as e:
+        logger.error("Firebase initialization failed: %s", e)
+
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize database on startup"""
+    initialize_firebase()
     init_db()
-
-@app.get("/health")
-def health_check():
-    return {"status": "healthy", "service": "CA Audit Platform API"}
-
-# Include routers
-app.include_router(auth.router)
-app.include_router(clients.router)
-app.include_router(audits.router)
-app.include_router(tasks.router)
-app.include_router(documents.router)
 
 @app.get("/")
 def read_root():
-    """Root endpoint"""
     return {
         "message": f"Welcome to {settings.APP_NAME}",
         "version": settings.APP_VERSION,
-        "environment": settings.ENVIRONMENT
+        "environment": settings.ENVIRONMENT,
     }
 
 @app.get("/health")
 def health_check():
-    """Health check endpoint"""
-    return {"status": "healthy"}
+    return {"status": "healthy", "service": "CA Audit Platform API"}
 
 if __name__ == "__main__":
     import uvicorn

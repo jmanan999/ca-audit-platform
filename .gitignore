@@ -1,0 +1,10 @@
+node_modules/
+build/
+.env
+.DS_Store
+*.log
+*.swp
+*.swo
+.vscode/
+.next/
+nextjs_dashboard/.next/

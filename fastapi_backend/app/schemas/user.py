@@ -22,9 +22,10 @@ class UserResponse(UserBase):
     id: int
     firebase_uid: str
     is_active: bool
+    is_approved: bool
     created_at: datetime
     updated_at: datetime
-    
+
     class Config:
         from_attributes = True
 

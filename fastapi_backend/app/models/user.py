@@ -11,6 +11,10 @@ class UserRole(str, enum.Enum):
     ARTICLE_TRAINEE = "article_trainee"
     CLIENT = "client"
 
+CA_ROLES = {UserRole.ADMIN, UserRole.CA_PARTNER}
+EXECUTIVE_ROLES = {UserRole.AUDITOR, UserRole.ARTICLE_TRAINEE}
+
+
 class User(Base):
     __tablename__ = "users"
     
@@ -23,6 +27,7 @@ class User(Base):
     department = Column(String, nullable=True)
     workspace_id = Column(Integer, nullable=True, index=True)  # For multi-tenancy
     is_active = Column(Boolean, default=True)
+    is_approved = Column(Boolean, default=False)  # CA must approve executives before they can work
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     

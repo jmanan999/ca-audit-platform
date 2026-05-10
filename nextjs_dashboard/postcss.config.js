@@ -1,2 +1,6 @@
-postcss-import
-postcss-preset-env
+module.exports = {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {},
+  },
+};

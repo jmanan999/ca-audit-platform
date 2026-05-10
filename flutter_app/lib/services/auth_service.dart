@@ -1,74 +1,84 @@
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:dio/dio.dart';
+import '../core/constants.dart';
+import '../models/user_model.dart';
+import 'api_client.dart';
 
 class AuthService {
-  static const String _apiUrl = 'http://localhost:8000/api/v1';
-  final FirebaseAuth _firebaseAuth = FirebaseAuth.instance;
-  final Dio _dio = Dio();
+  final _firebaseAuth = FirebaseAuth.instance;
+  final _api = ApiClient();
 
-  Stream<User?> authStateChanges() => _firebaseAuth.authStateChanges();
+  Future<AppUser> login(String email, String password) async {
+    final cred = await _firebaseAuth.signInWithEmailAndPassword(
+      email: email.trim(),
+      password: password,
+    );
+    final idToken = await cred.user!.getIdToken();
 
-  Future<bool> loginWithEmail(String email, String password) async {
-    try {
-      // Sign in with Firebase
-      final userCredential = await _firebaseAuth.signInWithEmailAndPassword(
-        email: email,
-        password: password,
-      );
+    final res = await _api.post('/auth/login', data: {'firebase_token': idToken});
+    final body = res.data as Map<String, dynamic>;
+    final token = body['access_token'] as String;
+    final user = AppUser.fromJson(body['user'] as Map<String, dynamic>);
 
-      // Get Firebase token
-      final token = await userCredential.user?.getIdToken();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(kTokenKey, token);
 
-      // Login with backend
-      final response = await _dio.post(
-        '$_apiUrl/auth/login',
-        data: {'firebase_token': token},
-      );
-
-      if (response.statusCode == 200) {
-        // Save access token
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('access_token', response.data['access_token']);
-        return true;
-      }
-      return false;
-    } catch (e) {
-      print('Login error: $e');
-      return false;
-    }
+    return user;
   }
 
-  Future<bool> registerWithEmail(String email, String password, String name) async {
+  Future<AppUser> register({
+    required String name,
+    required String email,
+    required String password,
+    String? phone,
+    String role = 'auditor',
+  }) async {
+    final cred = await _firebaseAuth.createUserWithEmailAndPassword(
+      email: email.trim(),
+      password: password,
+    );
+
+    await _api.post('/auth/register', data: {
+      'name': name.trim(),
+      'email': email.trim(),
+      if (phone != null && phone.isNotEmpty) 'phone': phone.trim(),
+      'role': role,
+    });
+
+    final idToken = await cred.user!.getIdToken();
+    final res = await _api.post('/auth/login', data: {'firebase_token': idToken});
+    final body = res.data as Map<String, dynamic>;
+    final token = body['access_token'] as String;
+    final user = AppUser.fromJson(body['user'] as Map<String, dynamic>);
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(kTokenKey, token);
+
+    return user;
+  }
+
+  Future<AppUser?> tryRestoreSession() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString(kTokenKey);
+    if (token == null) return null;
+
     try {
-      // Create Firebase user
-      final userCredential = await _firebaseAuth.createUserWithEmailAndPassword(
-        email: email,
-        password: password,
-      );
-
-      // Register with backend
-      final response = await _dio.post(
-        '$_apiUrl/auth/register',
-        data: {
-          'email': email,
-          'name': name,
-          'role': 'auditor',
-        },
-      );
-
-      return response.statusCode == 200;
-    } catch (e) {
-      print('Register error: $e');
-      return false;
+      final res = await _api.get('/auth/me');
+      return AppUser.fromJson(res.data as Map<String, dynamic>);
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 401) await _clearSession();
+      return null;
     }
   }
 
   Future<void> logout() async {
     await _firebaseAuth.signOut();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('access_token');
+    await _clearSession();
   }
 
-  User? getCurrentUser() => _firebaseAuth.currentUser;
+  Future<void> _clearSession() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(kTokenKey);
+  }
 }

@@ -39,3 +39,4 @@ class Audit(Base):
     assigned_user = relationship("User", back_populates="assigned_audits")
     tasks = relationship("Task", back_populates="audit", cascade="all, delete-orphan")
     documents = relationship("Document", back_populates="audit", cascade="all, delete-orphan")
+    verification_items = relationship("VerificationItem", back_populates="audit", cascade="all, delete-orphan")

@@ -1,3 +1,4 @@
+import asyncio
 import re
 import boto3
 import logging
@@ -54,57 +55,36 @@ class DocumentOCRService:
                 "status": "FAILED"
             }
         
-        try:
-            # Process document
-            response = self.textract_client.analyze_document(
-                Document={
-                    'S3Object': {
-                        'Bucket': settings.S3_BUCKET_NAME,
-                        'Name': file_path
-                    }
-                },
+        def _call_textract():
+            return self.textract_client.analyze_document(
+                Document={'S3Object': {'Bucket': settings.S3_BUCKET_NAME, 'Name': file_path}},
                 FeatureTypes=['TABLES', 'FORMS']
             )
-            
+
+        try:
+            response = await asyncio.to_thread(_call_textract)
             result = self._parse_textract_response(response)
             result["status"] = "COMPLETED"
             return result
-            
         except Exception as e:
             logger.error(f"Error processing document with Textract: {str(e)}")
-            return {
-                "text": "",
-                "confidence": 0.0,
-                "tables": [],
-                "forms": [],
-                "status": "FAILED",
-                "error": str(e)
-            }
+            return {"text": "", "confidence": 0.0, "tables": [], "forms": [], "status": "FAILED", "error": str(e)}
     
     async def process_document_from_bytes(self, file_bytes: bytes, file_type: str = "PDF") -> Dict[str, Any]:
-        """
-        Process document from bytes using Textract
-        
-        Args:
-            file_bytes: Document file bytes
-            file_type: File type (PDF, JPEG, PNG)
-            
-        Returns:
-            Dictionary with extracted content
-        """
         if not self.textract_client:
             return {"text": "", "confidence": 0.0, "status": "FAILED"}
-        
-        try:
-            response = self.textract_client.analyze_document(
+
+        def _call_textract():
+            return self.textract_client.analyze_document(
                 Document={'Bytes': file_bytes},
                 FeatureTypes=['TABLES', 'FORMS']
             )
-            
+
+        try:
+            response = await asyncio.to_thread(_call_textract)
             result = self._parse_textract_response(response)
             result["status"] = "COMPLETED"
             return result
-            
         except Exception as e:
             logger.error(f"Error processing document bytes: {str(e)}")
             return {"text": "", "confidence": 0.0, "status": "FAILED", "error": str(e)}

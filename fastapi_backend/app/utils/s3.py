@@ -1,3 +1,4 @@
+import asyncio
 import boto3
 from app.core.config import settings
 from typing import Optional
@@ -10,27 +11,20 @@ s3_client = boto3.client(
     region_name=settings.AWS_REGION
 )
 
+def _put_object_sync(key: str, body: bytes) -> None:
+    s3_client.put_object(Bucket=settings.S3_BUCKET_NAME, Key=key, Body=body)
+
+def _delete_object_sync(key: str) -> None:
+    s3_client.delete_object(Bucket=settings.S3_BUCKET_NAME, Key=key)
+
 async def upload_file_to_s3(file_content: bytes, key: str) -> str:
-    """Upload file to S3 and return the URL"""
-    try:
-        s3_client.put_object(
-            Bucket=settings.S3_BUCKET_NAME,
-            Key=key,
-            Body=file_content
-        )
-        
-        # Generate URL
-        url = f"https://{settings.S3_BUCKET_NAME}.s3.{settings.AWS_REGION}.amazonaws.com/{key}"
-        return url
-    except Exception as e:
-        raise Exception(f"S3 upload failed: {str(e)}")
+    await asyncio.to_thread(_put_object_sync, key, file_content)
+    return f"https://{settings.S3_BUCKET_NAME}.s3.{settings.AWS_REGION}.amazonaws.com/{key}"
 
 async def delete_file_from_s3(url: str) -> bool:
-    """Delete file from S3"""
     try:
-        # Extract key from URL
         key = url.split(f"{settings.S3_BUCKET_NAME}.s3.{settings.AWS_REGION}.amazonaws.com/")[1]
-        s3_client.delete_object(Bucket=settings.S3_BUCKET_NAME, Key=key)
+        await asyncio.to_thread(_delete_object_sync, key)
         return True
     except Exception as e:
         raise Exception(f"S3 delete failed: {str(e)}")

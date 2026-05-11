@@ -1,16 +1,16 @@
-import Flutter
 import UIKit
+import Flutter
 
 @main
-@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
+@objc class AppDelegate: FlutterAppDelegate {
+  lazy var flutterEngine = FlutterEngine(name: "flutter_engine")
+
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
-  }
-
-  func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
-    GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    flutterEngine.run()
+    GeneratedPluginRegistrant.register(with: flutterEngine)
+    return true
   }
 }

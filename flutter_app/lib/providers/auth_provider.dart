@@ -107,13 +107,25 @@ class AuthProvider extends ChangeNotifier {
     if (msg.contains('too-many-requests')) return 'Too many attempts. Try again later.';
     if (msg.contains('email-already-in-use')) return 'This email is already registered.';
     if (msg.contains('weak-password')) return 'Password must be at least 6 characters.';
-    if (msg.contains('network')) return 'Network error. Check your connection.';
-    if (msg.contains('SocketException') || msg.contains('Connection refused')) {
-      return 'Cannot reach server. Check your network connection.';
+    if (msg.contains('network-request-failed') || msg.contains('network')) {
+      return 'Network error. Check your connection.';
+    }
+    if (msg.contains('SocketException') ||
+        msg.contains('Connection refused') ||
+        msg.contains('connection timed out') ||
+        msg.contains('connection timeout') ||
+        msg.contains('ECONNREFUSED') ||
+        msg.contains('App Transport Security')) {
+      return 'Cannot reach server. Check that your phone and server are on the same WiFi (server: 192.168.1.11:8000).';
+    }
+    if (msg.contains('channel-error')) {
+      return 'Firebase configuration error. Please reinstall the app.';
     }
     // Strip DioException wrapper for cleaner display
     final detail = RegExp(r'"detail"\s*:\s*"([^"]+)"').firstMatch(msg)?.group(1);
     if (detail != null) return detail;
-    return 'Something went wrong. Please try again.';
+    // Show truncated raw error so we can diagnose unknown failures
+    final short = msg.length > 120 ? '${msg.substring(0, 120)}…' : msg;
+    return 'Login error: $short';
   }
 }

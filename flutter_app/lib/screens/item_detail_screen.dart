@@ -55,8 +55,9 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
 
     final picked = await _picker.pickImage(
       source: ImageSource.camera,
-      imageQuality: 85,
-      maxWidth: 2048,
+      imageQuality: 55,
+      maxWidth: 1280,
+      maxHeight: 1280,
     );
     if (picked == null) return;
     if (!mounted) return;
@@ -224,12 +225,20 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
                           }
                         } catch (e) {
                           if (mounted) {
+                            setSheetState(() {
+                              _uploading = false;
+                              _uploadProgress = 0;
+                            });
                             setState(() {
                               _uploading = false;
                               _uploadProgress = 0;
                             });
-                            _showSnack('Upload failed: ${e.toString()}',
-                                color: AppColors.rejectedFg);
+                            _showSnack(
+                              e.toString().contains('detail')
+                                  ? e.toString()
+                                  : 'Upload failed — check connection and retry',
+                              color: AppColors.rejectedFg,
+                            );
                           }
                         }
                       },

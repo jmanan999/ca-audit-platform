@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, Legend,
-  ResponsiveContainer, Cell,
+  ResponsiveContainer,
 } from 'recharts';
 import Layout from '@/components/Layout';
 import StatusBadge from '@/components/StatusBadge';

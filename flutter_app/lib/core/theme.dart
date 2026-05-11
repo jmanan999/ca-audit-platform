@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 class AppColors {
   static const primary = Color(0xFF2563EB);
@@ -41,7 +40,7 @@ class AppTheme {
     );
 
     return base.copyWith(
-      textTheme: GoogleFonts.interTextTheme(base.textTheme),
+      textTheme: base.textTheme,
       appBarTheme: AppBarTheme(
         backgroundColor: AppColors.surface,
         foregroundColor: AppColors.textPrimary,
@@ -49,7 +48,7 @@ class AppTheme {
         scrolledUnderElevation: 1,
         shadowColor: AppColors.border,
         centerTitle: false,
-        titleTextStyle: GoogleFonts.inter(
+        titleTextStyle: const TextStyle(
           fontSize: 17,
           fontWeight: FontWeight.w600,
           color: AppColors.textPrimary,
@@ -84,8 +83,8 @@ class AppTheme {
           borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: AppColors.rejectedFg),
         ),
-        labelStyle: GoogleFonts.inter(color: AppColors.textSecondary, fontSize: 13),
-        hintStyle: GoogleFonts.inter(color: AppColors.textSecondary, fontSize: 14),
+        labelStyle: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+        hintStyle: const TextStyle(color: AppColors.textSecondary, fontSize: 14),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
@@ -93,7 +92,7 @@ class AppTheme {
           foregroundColor: Colors.white,
           minimumSize: const Size(double.infinity, 52),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          textStyle: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w600),
+          textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
           elevation: 0,
         ),
       ),
@@ -103,7 +102,7 @@ class AppTheme {
           minimumSize: const Size(double.infinity, 52),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           side: const BorderSide(color: AppColors.primary),
-          textStyle: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w600),
+          textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
         ),
       ),
       bottomNavigationBarTheme: const BottomNavigationBarThemeData(

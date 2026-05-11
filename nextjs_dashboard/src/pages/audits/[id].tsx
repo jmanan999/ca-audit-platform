@@ -28,7 +28,6 @@ export default function AuditDetail() {
   const auditId = id ? parseInt(id as string) : null;
   const { ready } = useAuthGuard();
 
-  const audits = useAuditStore((s) => s.audits);
   const updateAudit = useAuditStore((s) => s.updateAudit);
   const clients = useClientStore((s) => s.clients);
   const setClients = useClientStore((s) => s.setClients);

@@ -28,25 +28,6 @@ def get_risk_summary(
     ws = current_user.workspace_id
 
     # Per-audit counts
-    audit_rows = (
-        db.query(
-            Audit.id,
-            Audit.audit_type,
-            Audit.status,
-            Audit.client_id,
-            func.count(VerificationItem.id).label("total"),
-            func.sum(
-                func.cast(VerificationItem.is_high_risk, db.bind.dialect.name == "postgresql" and "int" or "integer")
-                if False else VerificationItem.is_high_risk
-            ).label("high_risk"),
-        )
-        .outerjoin(VerificationItem, VerificationItem.audit_id == Audit.id)
-        .filter(Audit.workspace_id == ws)
-        .group_by(Audit.id, Audit.audit_type, Audit.status, Audit.client_id)
-        .all()
-    )
-
-    # Simpler approach: raw counts per audit
     audit_totals = (
         db.query(
             VerificationItem.audit_id,

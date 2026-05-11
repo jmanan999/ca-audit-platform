@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Upload, FileText, CheckCircle, AlertCircle, Loader } from 'lucide-react';
+import { Upload, CheckCircle, AlertCircle, Loader } from 'lucide-react';
 import { auditsAPI } from '@/lib/api';
 import { VerificationItem } from '@/lib/store';
 

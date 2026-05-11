@@ -13,7 +13,7 @@ class ApiClient {
       baseUrl: '$kApiBaseUrl$kApiPath',
       connectTimeout: const Duration(milliseconds: kConnectTimeoutMs),
       receiveTimeout: const Duration(milliseconds: kReceiveTimeoutMs),
-      headers: {'Content-Type': 'application/json'},
+      followRedirects: true,
     ));
 
     dio.interceptors.add(
@@ -54,7 +54,6 @@ class ApiClient {
       dio.post<T>(
         path,
         data: formData,
-        options: Options(contentType: 'multipart/form-data'),
         onSendProgress: onSendProgress,
       );
 }

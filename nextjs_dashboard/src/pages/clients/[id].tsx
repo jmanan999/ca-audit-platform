@@ -17,7 +17,6 @@ export default function ClientDetail() {
   const clients = useClientStore((s) => s.clients);
   const audits = useAuditStore((s) => s.audits);
   const setAudits = useAuditStore((s) => s.setAudits);
-  const addAudit = useAuditStore((s) => s.addAudit);
   const allItems = useVerificationItemStore((s) => s.items);
   const addItems = useVerificationItemStore((s) => s.addItems);
 

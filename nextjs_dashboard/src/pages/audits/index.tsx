@@ -4,7 +4,7 @@ import StatusBadge from '@/components/StatusBadge';
 import ProgressBar from '@/components/ProgressBar';
 import { useAuthGuard } from '@/lib/useAuthGuard';
 import { useAuditStore, useClientStore, useVerificationItemStore } from '@/lib/store';
-import { auditsAPI, clientsAPI, verificationItemsAPI } from '@/lib/api';
+import { auditsAPI, clientsAPI, verificationItemsAPI, executivesAPI } from '@/lib/api';
 import { useRouter } from 'next/router';
 import { Plus, Trash2, Calendar } from 'lucide-react';
 
@@ -20,6 +20,7 @@ const defaultForm = {
   scope: '',
   description: '',
   deadline: '',
+  assigned_to: '',
 };
 
 const STATUS_TABS = ['all', 'planned', 'in_progress', 'under_review', 'completed', 'on_hold'];
@@ -41,15 +42,18 @@ export default function Audits() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [form, setForm] = useState(defaultForm);
+  const [executives, setExecutives] = useState<any[]>([]);
 
   useEffect(() => {
     if (!ready) return;
     Promise.all([
       auditsAPI.list({ limit: 100 }),
       clientsAPI.list(),
-    ]).then(async ([auditsRes, clientsRes]) => {
+      executivesAPI.list(),
+    ]).then(async ([auditsRes, clientsRes, execRes]) => {
       setAudits(auditsRes.data);
       setClients(clientsRes.data);
+      setExecutives(execRes.data);
       // Fetch item counts for first 15 audits so progress bars render
       const toFetch: any[] = auditsRes.data.slice(0, 15);
       const results = await Promise.allSettled(
@@ -69,10 +73,11 @@ export default function Audits() {
     setSubmitting(true);
     setError('');
     try {
-      const payload = {
+      const payload: any = {
         ...form,
         client_id: parseInt(form.client_id),
         deadline: form.deadline + 'T23:59:59',
+        assigned_to: form.assigned_to ? parseInt(form.assigned_to) : null,
       };
       const res = await auditsAPI.create(payload);
       addAudit(res.data);
@@ -265,6 +270,20 @@ export default function Audits() {
                 >
                   <option value="">Select type…</option>
                   {AUDIT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Assign To Executive</label>
+                <select
+                  value={form.assigned_to}
+                  onChange={(e) => set('assigned_to', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Unassigned</option>
+                  {executives.map((ex) => (
+                    <option key={ex.id} value={ex.id}>{ex.name} ({ex.email})</option>
+                  ))}
                 </select>
               </div>
 

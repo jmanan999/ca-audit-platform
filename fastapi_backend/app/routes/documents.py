@@ -1,4 +1,5 @@
 import json
+import logging
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -15,6 +16,8 @@ from app.utils.audit_log import log_action
 from app.services.ocr_service import ocr_service
 from datetime import datetime
 import os
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
 
@@ -156,6 +159,8 @@ async def upload_document(
     except HTTPException:
         raise
     except Exception as e:
+        import traceback
+        logger.error("Evidence upload failed:\n%s", traceback.format_exc())
         raise HTTPException(status_code=400, detail=f"Upload failed: {str(e)}")
 
 @router.put("/{document_id}", response_model=DocumentResponse)
